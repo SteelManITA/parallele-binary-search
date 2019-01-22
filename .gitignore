@@ -1,0 +1,4 @@
+dist/
+compile/
+vc140.pdb
+.vscode/
