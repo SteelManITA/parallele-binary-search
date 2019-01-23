@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
 
     cudaRunEvent(
         "merge",
-        [&](){ merge<<<numBlocks, blockSize>>>((int4*)d_v1, (int4*)d_v2, d_vmerge, numels); },
+        [&](){ merge<<<numBlocks, blockSize>>>((int4*)d_v1, (int4*)d_v2, (int4*)d_vmerge, numels); },
         (2 * vSize / 4) + (8 * vmergeSize) + (2 * vSize * (log(numels/4)/log(2))) // TODO: verificare
     );
 

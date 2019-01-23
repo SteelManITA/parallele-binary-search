@@ -1,5 +1,5 @@
 __device__ __forceinline__
-int search(
+int2 search(
     const int4 * __restrict__ vec,
     const int search,
     const int length
@@ -13,9 +13,9 @@ int search(
         curr = vec[middle];
         if (search >= curr.x && search < curr.w) {
             // cerca dentro
-            if (search > curr.z) return middle*4 + 3;
-            if (search > curr.y) return middle*4 + 2;
-            if (search > curr.x) return middle*4 + 1;
+            if (search > curr.z) return make_int2(middle, 3);
+            if (search > curr.y) return make_int2(middle, 2);
+            if (search > curr.x) return make_int2(middle, 1);
         } else {
             if (search > curr.w) {
                 // cerca sopra
@@ -28,15 +28,67 @@ int search(
         }
     }
     // caso in cui è il primo valore della quartina
-    int val = (middle+lower)*4 + 0;
+    int2 val = make_int2((middle+lower), 0);
 
     if (curr.x != -1) {
         // caso in cui è l'ultimo valore della quartina
-        if (search > curr.w) val = (middle+1)*4;
-        if (search < curr.x) val = (middle)*4;
+        if (search > curr.w) val = make_int2((middle+1), 0);
+        if (search < curr.x) val = make_int2((middle), 0);
     }
 
     return val;
+}
+
+// TODO: refactoring dei parametri
+__device__ __forceinline__
+void place(
+    const int2 position,
+    const int i,
+    const int intPos,
+    int4 * __restrict__ vmerge,
+    const int value
+) {
+    const int minIndex = position.y + intPos;
+    const int index = i + position.x + (minIndex/4);
+    const int internalIndex = module(minIndex, 4);
+    if (internalIndex == 0) {
+        vmerge[index].x = value;
+        return;
+    }
+    if (internalIndex == 1) {
+        vmerge[index].y = value;
+        return;
+    }
+    if (internalIndex == 2) {
+        vmerge[index].z = value;
+        return;
+    }
+    if (internalIndex == 3) {
+        vmerge[index].w = value;
+        return;
+    }
+}
+
+// TODO: refactoring dei parametri
+__device__ __forceinline__
+void searchAndPlace(
+    const int i,
+    const int4 elements,
+    const int quarts,
+    int4 * __restrict__ vmerge,
+    const int4 * __restrict__ vec
+) {
+    int2 index_el_0_in_vec = search(vec, elements.x, quarts);
+    place(index_el_0_in_vec, i, 0, vmerge, elements.x);
+
+    int2 index_el_1_in_vec = search(vec, elements.y, quarts);
+    place(index_el_1_in_vec, i, 1, vmerge, elements.y);
+
+    int2 index_el_2_in_vec = search(vec, elements.z, quarts);
+    place(index_el_2_in_vec, i, 2, vmerge, elements.z);
+
+    int2 index_el_3_in_vec = search(vec, elements.w, quarts);
+    place(index_el_3_in_vec, i, 3, vmerge, elements.w);
 }
 
 __global__
@@ -56,7 +108,7 @@ __global__
 void merge(
     const int4 * __restrict__ v1,
     const int4 * __restrict__ v2,
-    int * __restrict__ vmerge,
+    int4 * __restrict__ vmerge,
     int numels
 ) {
     // Iterativo
@@ -72,29 +124,14 @@ void merge(
     }
     */
     int i = getId();
-    if (i >= numels/4) return;
+    int quarts = numels/4;
+    if (i >= quarts) return;
 
     int4 el1 = v1[i];
-    int index_el1_0_in_v2 = search(v2, el1.x, numels/4);
-    int index_el1_1_in_v2 = search(v2, el1.y, numels/4);
-    int index_el1_2_in_v2 = search(v2, el1.z, numels/4);
-    int index_el1_3_in_v2 = search(v2, el1.w, numels/4);
-
-    vmerge[(i*4+0) + index_el1_0_in_v2] = el1.x;
-    vmerge[(i*4+1) + index_el1_1_in_v2] = el1.y;
-    vmerge[(i*4+2) + index_el1_2_in_v2] = el1.z;
-    vmerge[(i*4+3) + index_el1_3_in_v2] = el1.w;
+    searchAndPlace(i, el1, quarts, vmerge, v2);
 
     int4 el2 = v2[i];
-    int index_el2_0_in_v1 = search(v1, el2.x, numels/4);
-    int index_el2_1_in_v1 = search(v1, el2.y, numels/4);
-    int index_el2_2_in_v1 = search(v1, el2.z, numels/4);
-    int index_el2_3_in_v1 = search(v1, el2.w, numels/4);
-
-    vmerge[(i*4+0) + index_el2_0_in_v1] = el2.x;
-    vmerge[(i*4+1) + index_el2_1_in_v1] = el2.y;
-    vmerge[(i*4+2) + index_el2_2_in_v1] = el2.z;
-    vmerge[(i*4+3) + index_el2_3_in_v1] = el2.w;
+    searchAndPlace(i, el2, quarts, vmerge, v1);
 
     // sincronizza e aggiungi i mancanti
     // __syncthreads();

@@ -6,6 +6,11 @@ int getId()
     return threadIdx.x + blockIdx.x*blockDim.x;
 }
 
+__device__ __host__ __forceinline__
+int module (int a, int b) {
+    return a & (b - 1);
+}
+
 void error(const char *msg)
 {
     fprintf(stderr, "%s\n", msg);
