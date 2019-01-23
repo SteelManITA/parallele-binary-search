@@ -1,21 +1,42 @@
 __device__ __forceinline__
 int search(
-    const int * __restrict__ vec,
+    const int4 * __restrict__ vec,
     const int search,
     const int length
 ) {
     int lower = 0;
     int upper = length;
-    int middle;
+    int middle = 0;
+    int4 curr = make_int4(-1, -1, -1, -1);
     while (lower < upper) {
         middle = (lower + upper) >> 1;
-        if (vec[middle] < search) {
-            lower = middle + 1;
+        curr = vec[middle];
+        if (search >= curr.x && search < curr.w) {
+            // cerca dentro
+            if (search > curr.z) return middle*4 + 3;
+            if (search > curr.y) return middle*4 + 2;
+            if (search > curr.x) return middle*4 + 1;
         } else {
-            upper = middle;
+            if (search > curr.w) {
+                // cerca sopra
+                lower = middle + 1;
+            }
+            if (search < curr.x) {
+                // cerca sotto
+                upper = middle;
+            }
         }
     }
-    return lower;
+    // caso in cui è il primo valore della quartina
+    int val = (middle+lower)*4 + 0;
+
+    if (curr.x != -1) {
+        // caso in cui è l'ultimo valore della quartina
+        if (search > curr.w) val = (middle+1)*4;
+        if (search < curr.x) val = (middle)*4;
+    }
+
+    return val;
 }
 
 __global__
@@ -33,8 +54,8 @@ void init(
 
 __global__
 void merge(
-    const int * __restrict__ v1,
-    const int * __restrict__ v2,
+    const int4 * __restrict__ v1,
+    const int4 * __restrict__ v2,
     int * __restrict__ vmerge,
     int numels
 ) {
@@ -51,16 +72,29 @@ void merge(
     }
     */
     int i = getId();
-    if (i >= numels) return;
+    if (i >= numels/4) return;
 
-    int el1 = v1[i];
-    int el2 = v2[i];
+    int4 el1 = v1[i];
+    int index_el1_0_in_v2 = search(v2, el1.x, numels/4);
+    int index_el1_1_in_v2 = search(v2, el1.y, numels/4);
+    int index_el1_2_in_v2 = search(v2, el1.z, numels/4);
+    int index_el1_3_in_v2 = search(v2, el1.w, numels/4);
 
-    int index_el1_in_v2 = search(v2, el1, numels); // 2*i;
-    int index_el2_in_v1 = search(v1, el2, numels); // i1+1;
+    vmerge[(i*4+0) + index_el1_0_in_v2] = el1.x;
+    vmerge[(i*4+1) + index_el1_1_in_v2] = el1.y;
+    vmerge[(i*4+2) + index_el1_2_in_v2] = el1.z;
+    vmerge[(i*4+3) + index_el1_3_in_v2] = el1.w;
 
-    vmerge[i+index_el1_in_v2] = el1;
-    vmerge[i+index_el2_in_v1] = el2;
+    int4 el2 = v2[i];
+    int index_el2_0_in_v1 = search(v1, el2.x, numels/4);
+    int index_el2_1_in_v1 = search(v1, el2.y, numels/4);
+    int index_el2_2_in_v1 = search(v1, el2.z, numels/4);
+    int index_el2_3_in_v1 = search(v1, el2.w, numels/4);
+
+    vmerge[(i*4+0) + index_el2_0_in_v1] = el2.x;
+    vmerge[(i*4+1) + index_el2_1_in_v1] = el2.y;
+    vmerge[(i*4+2) + index_el2_2_in_v1] = el2.z;
+    vmerge[(i*4+3) + index_el2_3_in_v1] = el2.w;
 
     // sincronizza e aggiungi i mancanti
     // __syncthreads();
