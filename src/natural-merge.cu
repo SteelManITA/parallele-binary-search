@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
     const size_t vSize = numels*sizeof(int);
     const size_t vmergeSize = 2 * vSize;
 
-    int *d_v1, *d_v2, *d_vmerge, *vmerge;
+    int *d_v1, *d_v2, *d_tmp, *d_vmerge, *vmerge;
 
     cudaError_t err;
 
@@ -44,6 +44,8 @@ int main(int argc, char *argv[])
     err = cudaMalloc(&d_v1, vSize);
     cudaCheck(err, "alloc v1");
     err = cudaMalloc(&d_v2, vSize);
+    cudaCheck(err, "alloc v2");
+    err = cudaMalloc(&d_tmp, vSize/2);
     cudaCheck(err, "alloc v2");
     err = cudaMalloc(&d_vmerge, vmergeSize);
     cudaCheck(err, "alloc vmerge");
@@ -74,6 +76,8 @@ int main(int argc, char *argv[])
     cudaCheck(err, "memset v1");
     err = cudaMemset(d_v2, -1, vSize);
     cudaCheck(err, "memset v2");
+    err = cudaMemset(d_tmp, -1, vSize/2);
+    cudaCheck(err, "memset v2");
     err = cudaMemset(d_vmerge, -1, vmergeSize);
     cudaCheck(err, "memset vmerge");
 
@@ -83,11 +87,43 @@ int main(int argc, char *argv[])
         2 * vSize
     );
 
+    // cudaRunEvent(
+    //     "merge",
+    //     [&](){ merge<<<numBlocks, blockSize>>>(d_v1, d_v2, d_vmerge, numels); },
+    //     (2 * vSize) + (2 * vmergeSize) + (2 * vSize * (log(numels)/log(2))) // TODO: verificare
+    // );
+
+    // ciclare le riduzioni
+    int *idx;
+    err = cudaMalloc(&idx, sizeof(int));
+    cudaCheck(err, "alloc idx");
+    
+    int nsums = log(numels)/log(2) + 1;
+    int toReduce = numels;
+
+    while (toReduce > 1) {
+        cudaRunEvent(
+            "riduzione",
+            [&](){ riduzione<<<numBlocks, blockSize>>>((int2*)d_v1, d_tmp, 5, idx, toReduce); },
+            (2 * vSize) + (2 * vmergeSize) + (2 * vSize * (log(numels)/log(2))) // TODO: verificare
+        );
+
+        int * app = d_v1;
+        d_v1 = d_tmp;
+        d_tmp = app;
+
+        toReduce /= 2;
+    }
+
+
+    int sum;
     cudaRunEvent(
-        "merge",
-        [&](){ merge<<<numBlocks, blockSize>>>(d_v1, d_v2, d_vmerge, numels); },
-        (2 * vSize) + (2 * vmergeSize) + (2 * vSize * (log(numels)/log(2))) // TODO: verificare
+        "cpy",
+        [&](){ cudaMemcpy(&sum, idx, sizeof(sum), cudaMemcpyDeviceToHost); },
+        vmergeSize
     );
+
+    printf("\nIdx vale %d\n", sum);
 
     cudaRunEvent(
         "cpy",
@@ -99,6 +135,7 @@ int main(int argc, char *argv[])
 
     cudaFree(d_v1);
     cudaFree(d_v2);
+    cudaFree(d_tmp);
     cudaFree(d_vmerge);
     delete [] vmerge;
 

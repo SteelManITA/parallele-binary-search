@@ -1,3 +1,34 @@
+__global__
+void riduzione(
+    const int2 * __restrict__ input,
+    int * __restrict__ output,
+    int search,
+    int * idx,
+    const int numels
+) {
+    int i = getId();
+    if (i >= numels) return;
+
+    // if (i != 0) return;
+
+    int2 in = input[i];
+    if (search > in.x && search < in.y) {
+        *idx = i*2+1;
+        output[i] = in.y;
+    }
+    if (search > in.y) {
+        *idx = i*2+1;
+        output[i] = in.y;
+    }
+    if (search < in.x) {
+        *idx = i*2;
+        output[i] = in.x;
+    }
+    printf("Search: %d, inx = %d, iny = %d, output[%d] = %d", search, in.x, in.y, i, output[i]);
+
+    // output[i] = in.x + in.y;
+}
+
 __device__ __forceinline__
 int search(
     const int * __restrict__ vec,
