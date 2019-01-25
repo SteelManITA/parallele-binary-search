@@ -1,5 +1,12 @@
 #include <functional>
 
+/* divisione intera per eccesso a/b */
+__host__ __device__ __forceinline__
+int div_up(int a, int b)
+{
+	return (a + b - 1)/b;
+}
+
 __device__ __forceinline__
 int getId()
 {
@@ -55,5 +62,5 @@ void cudaRunEvent(
     cudaCheck(err, concat("elapsed time ", eventName));
     bandwidth = (transferredBytes)/1.0e6/runtime;
 
-    printf("%s:\t%gms\t%gGB/s\n", eventName, runtime, bandwidth);
+    printf("%-10s:\t%-10.9gms\t%-10.9gGB/s\n", eventName, runtime, bandwidth);
 }

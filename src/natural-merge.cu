@@ -13,7 +13,8 @@
 #define VEC_COUNT 2
 #define MAX_INPUT INT_MAX / 10 // TODO: verificare
 
-void verify(const int *vmerge, int numels);
+void verifyMerge(const int *vmerge, int numels);
+void verifyScan(const int *vscan, int numels);
 
 int main(int argc, char *argv[])
 {
@@ -36,7 +37,8 @@ int main(int argc, char *argv[])
     const size_t vSize = numels*sizeof(int);
     const size_t vmergeSize = 2 * vSize;
 
-    int *d_v1, *d_v2, *d_vmerge, *vmerge;
+    int *d_v1, *d_v2, *d_vmerge, *d_vscan;
+    int *vmerge, *vscan;
 
     cudaError_t err;
 
@@ -47,10 +49,13 @@ int main(int argc, char *argv[])
     cudaCheck(err, "alloc v2");
     err = cudaMalloc(&d_vmerge, vmergeSize);
     cudaCheck(err, "alloc vmerge");
+    err = cudaMalloc(&d_vscan, vmergeSize);
+    cudaCheck(err, "alloc vscan");
 
     vmerge = new int[2 * numels];
+    vscan = new int[2 * numels];
 
-    if (!vmerge) {
+    if (!vmerge || !vscan) {
         error("impossibile allocare tutti i vettori");
     }
 
@@ -60,6 +65,13 @@ int main(int argc, char *argv[])
         cudaHostRegisterPortable
     );
     cudaCheck(err, "pin vmerge");
+
+    err = cudaHostRegister(
+        vscan,
+        vmergeSize,
+        cudaHostRegisterPortable
+    );
+    cudaCheck(err, "pin vscan");
 
     int blockSize = 256;
     int numBlocks = (numels + blockSize - 1)/blockSize;
@@ -76,6 +88,8 @@ int main(int argc, char *argv[])
     cudaCheck(err, "memset v2");
     err = cudaMemset(d_vmerge, -1, vmergeSize);
     cudaCheck(err, "memset vmerge");
+    err = cudaMemset(d_vscan, 0, vmergeSize);
+    cudaCheck(err, "memset vmerge");
 
     cudaRunEvent(
         "init",
@@ -84,33 +98,123 @@ int main(int argc, char *argv[])
     );
 
     cudaRunEvent(
-        "merge",
+        "merge v1",
         [&](){ merge<<<numBlocks, blockSize>>>(d_v1, d_v2, d_vmerge, numels); },
         (2 * vSize) + (2 * vmergeSize) + (2 * vSize * (log(numels)/log(2))) // TODO: verificare
     );
 
     cudaRunEvent(
-        "cpy",
+        "filter index v2",
+        [&](){ filter<<<numBlocks, blockSize>>>(d_vmerge, d_vscan, 2*numels); },
+        0 // TODO: verificare
+    );
+
+    /* START SCAN */
+    int blockSizeScan = 1024;
+    int numBlocksScan = 8;
+    int *d_code;
+    cudaCheck(cudaMalloc(&d_code, numBlocksScan*sizeof(*d_code)),
+        "allocazione code");
+
+    cudaRunEvent(
+        "scan",
+        [&](){
+            scan<<<numBlocksScan, blockSizeScan, blockSizeScan*sizeof(int)>>>(
+                (int4*)d_vscan, // unico input
+                (int4*)d_vscan,
+                d_code, /* code */
+                numels*2);
+            if (numBlocksScan > 1) {
+                scan<<<1, blockSizeScan, blockSizeScan*sizeof(int)>>>(
+                    (int4*)d_code,
+                    (int4*)d_code,
+                    NULL,
+                    numBlocksScan);
+                finalize_scan<<<numBlocksScan, blockSizeScan>>>(
+                    (int4*)d_vscan,
+                    d_code, /* code */
+                    numels*2);
+            }
+        },
+        0 // TODO: verificare
+    );
+    /* END SCAN */
+
+    // int * d_vidx = d_v1;
+    int * vidx = new int[numels];
+
+    // uso d_v1 come appoggio (sporco l'input)
+    cudaRunEvent(
+        "compact v2",
+        [&](){ compact<<<numBlocks, blockSize>>>(d_vmerge, d_vscan, d_v2, d_v1, 2*numels); },
+        0 // TODO: verificare
+    );
+
+    cudaRunEvent(
+        "finalize merge",
+        [&](){ finalize_merge<<<numBlocks, blockSize>>>(d_v2, d_v1, d_vmerge, numels); },
+        0 // TODO: verificare
+    );
+
+    // memcpy
+    cudaRunEvent(
+        "cpy vscan",
+        [&](){ cudaMemcpy(vscan, d_vscan, vmergeSize, cudaMemcpyDeviceToHost); },
+        vmergeSize
+    );
+
+    cudaRunEvent(
+        "cpy compact",
+        [&](){ cudaMemcpy(vidx, d_v1, vSize, cudaMemcpyDeviceToHost); },
+        vmergeSize
+    );
+
+    cudaRunEvent(
+        "cpy vmerge",
         [&](){ cudaMemcpy(vmerge, d_vmerge, vmergeSize, cudaMemcpyDeviceToHost); },
         vmergeSize
     );
 
-    verify(vmerge, 2 * numels);
+    for (int i = 0; i < numels*2; ++i) {
+        if (i > numels - 10 && i < numels + 10) {
+            printf("\n%d:\t%d\t%d\t%d", i, vmerge[i], vscan[i], vidx[i]);
+        }
+    }
+    // verifyScan(vscan, 2 * numels);
+    verifyMerge(vmerge, 2 * numels);
 
     cudaFree(d_v1);
     cudaFree(d_v2);
     cudaFree(d_vmerge);
+    cudaFree(d_vscan);
     delete [] vmerge;
+    delete [] vscan;
 
     return 0;
 }
 
-void verify(const int *vmerge, int numels)
+void verifyMerge(const int *vmerge, int numels)
 {
     for (int i = 0; i < numels; ++i) {
         if (vmerge[i] != i) {
-            fprintf(stderr, "mismatch @ %d: %d != %d\n", i, vmerge[i], i);
+            fprintf(stderr, "vmerge: mismatch @ %d: %d != %d\n", i, vmerge[i], i);
             exit(2);
         }
     }
+}
+
+void verifyScan(const int *vscan, int numels)
+{
+    int target = 0;
+	for (int i = 0; i < numels; ++i) {
+        // if (i > numels/2 - 20) {
+        //     printf("\n%d == %d", i, vscan[i], target);
+        // }
+		if (vscan[i] != target) {
+            fprintf(stderr, "vscan: mismatch @ %d: %d != %d\n",
+            i, vscan[i], target);
+			exit(2);
+		}
+        target += i;
+	}
 }
