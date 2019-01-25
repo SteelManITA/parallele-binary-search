@@ -13,8 +13,7 @@
 #define VEC_COUNT 2
 #define MAX_INPUT INT_MAX / 10 // TODO: verificare
 
-void verifyMerge(const int *vmerge, int numels);
-void verifyScan(const int *vscan, int numels);
+void verify(const int *vmerge, int numels);
 
 int main(int argc, char *argv[])
 {
@@ -75,6 +74,7 @@ int main(int argc, char *argv[])
 
     int blockSize = 256;
     int numBlocks = (numels + blockSize - 1)/blockSize;
+    int numBlocks2 = (numels*2 + blockSize - 1)/blockSize;
 
     cudaDeviceProp devProps;
     err = cudaGetDeviceProperties(&devProps, 0);
@@ -88,8 +88,8 @@ int main(int argc, char *argv[])
     cudaCheck(err, "memset v2");
     err = cudaMemset(d_vmerge, -1, vmergeSize);
     cudaCheck(err, "memset vmerge");
-    err = cudaMemset(d_vscan, 0, vmergeSize);
-    cudaCheck(err, "memset vmerge");
+    err = cudaMemset(d_vscan, -1, vmergeSize);
+    cudaCheck(err, "memset vscan");
 
     cudaRunEvent(
         "init",
@@ -105,7 +105,7 @@ int main(int argc, char *argv[])
 
     cudaRunEvent(
         "filter index v2",
-        [&](){ filter<<<numBlocks, blockSize>>>(d_vmerge, d_vscan, 2*numels); },
+        [&](){ filter<<<numBlocks2, blockSize>>>(d_vmerge, d_vscan, 2*numels); },
         0 // TODO: verificare
     );
 
@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
     // uso d_v1 come appoggio (sporco l'input)
     cudaRunEvent(
         "compact v2",
-        [&](){ compact<<<numBlocks, blockSize>>>(d_vmerge, d_vscan, d_v2, d_v1, 2*numels); },
+        [&](){ compact<<<numBlocks2, blockSize>>>(d_vmerge, d_vscan, d_v2, d_v1, 2*numels); },
         0 // TODO: verificare
     );
 
@@ -156,32 +156,13 @@ int main(int argc, char *argv[])
         0 // TODO: verificare
     );
 
-    // memcpy
-    cudaRunEvent(
-        "cpy vscan",
-        [&](){ cudaMemcpy(vscan, d_vscan, vmergeSize, cudaMemcpyDeviceToHost); },
-        vmergeSize
-    );
-
-    cudaRunEvent(
-        "cpy compact",
-        [&](){ cudaMemcpy(vidx, d_v1, vSize, cudaMemcpyDeviceToHost); },
-        vmergeSize
-    );
-
     cudaRunEvent(
         "cpy vmerge",
         [&](){ cudaMemcpy(vmerge, d_vmerge, vmergeSize, cudaMemcpyDeviceToHost); },
         vmergeSize
     );
 
-    for (int i = 0; i < numels*2; ++i) {
-        if (i > numels - 10 && i < numels + 10) {
-            printf("\n%d:\t%d\t%d\t%d", i, vmerge[i], vscan[i], vidx[i]);
-        }
-    }
-    // verifyScan(vscan, 2 * numels);
-    verifyMerge(vmerge, 2 * numels);
+    verify(vmerge, 2 * numels);
 
     cudaFree(d_v1);
     cudaFree(d_v2);
@@ -193,7 +174,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void verifyMerge(const int *vmerge, int numels)
+void verify(const int *vmerge, int numels)
 {
     for (int i = 0; i < numels; ++i) {
         if (vmerge[i] != i) {
@@ -201,20 +182,4 @@ void verifyMerge(const int *vmerge, int numels)
             exit(2);
         }
     }
-}
-
-void verifyScan(const int *vscan, int numels)
-{
-    int target = 0;
-	for (int i = 0; i < numels; ++i) {
-        // if (i > numels/2 - 20) {
-        //     printf("\n%d == %d", i, vscan[i], target);
-        // }
-		if (vscan[i] != target) {
-            fprintf(stderr, "vscan: mismatch @ %d: %d != %d\n",
-            i, vscan[i], target);
-			exit(2);
-		}
-        target += i;
-	}
 }

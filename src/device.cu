@@ -72,17 +72,12 @@ void merge(
     // 		}
     // 	}
     // }
-
-    // DEBUG
-    // vmerge[i] = i;
-    // vmerge[i+numels] = i+numels;
 }
 
 // prende tutti quelli con -1 e setta v2
 __global__
 void filter(
     const int * __restrict__ input, // vmerge
-    // const int * __restrict__ predicate,
     int * __restrict__ output,
     int numels
 ) {
@@ -116,6 +111,7 @@ void compact(
         const int idx = indexs[i];
         output[idx] = v2[idx];
     }
+
 }
 
 __global__
