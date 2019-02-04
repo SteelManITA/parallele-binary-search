@@ -97,11 +97,58 @@ int main(int argc, char *argv[])
         2 * vSize
     );
 
+    int *d_vidx;
+    err = cudaMalloc(&d_vidx, vSize);
+    cudaCheck(err, "alloc vout");
+
+    int sample_length = numels / (16384*8); // 512
+
     cudaRunEvent(
-        "merge v1",
-        [&](){ merge<<<numBlocks, blockSize>>>(d_v1, d_v2, d_vmerge, numels); },
-        (2 * vSize) + (2 * vmergeSize) + (2 * vSize * (log(numels)/log(2))) // TODO: verificare
+        "populateSample",
+        [&](){
+            populateSample<<<
+                (sample_length + 256 - 1)/256,
+                256,
+                sample_length*sizeof(int)
+            >>>(d_v2, sample_length, numels);
+        },
+        0 // TODO: verificare
     );
+
+    cudaRunEvent(
+        "search2",
+        [&](){ search2<<<
+            (numels + 256 - 1)/256,
+            256,
+            sample_length*sizeof(int)
+        >>>(
+            d_v2, // dove cercare
+            d_vidx, // output
+            d_v1, // elementi da cercare
+            sample_length, // numero chunk
+            numels // numero elementi
+        ); },
+        0 // TODO: verificare
+    );
+
+    // cudaRunEvent(
+    //     "merge v1",
+    //     [&](){ merge<<<numBlocks, blockSize>>>(d_v1, d_v2, d_vmerge, numels, d_vidx); },
+    //     (2 * vSize) + (2 * vmergeSize) + (2 * vSize * (log(numels)/log(2))) // TODO: verificare
+    // );
+
+    // cudaRunEvent(
+    //     "cpy vmerge",
+    //     [&](){ cudaMemcpy(vmerge, d_vmerge, vmergeSize, cudaMemcpyDeviceToHost); },
+    //     vmergeSize
+    // );
+
+    // for (int i = 0; i<2*numels; ++i) {
+    //     if (i < 20 || (i > numels-10 && i < numels+10))
+    //         printf("\nout[%d] = %d", i, vmerge[i]);
+    // }
+
+    return 0;
 
     cudaRunEvent(
         "filter index v2",
@@ -140,9 +187,6 @@ int main(int argc, char *argv[])
     );
     /* END SCAN */
 
-    // int * d_vidx = d_v1;
-    int * vidx = new int[numels];
-
     // uso d_v1 come appoggio (sporco l'input)
     cudaRunEvent(
         "compact v2",
@@ -161,6 +205,13 @@ int main(int argc, char *argv[])
         [&](){ cudaMemcpy(vmerge, d_vmerge, vmergeSize, cudaMemcpyDeviceToHost); },
         vmergeSize
     );
+
+    for (int i = 0; i<2*numels; ++i) {
+        if (i < 20 || i > 2*numels-10)
+            printf("\nout[%d] = %d", i, vmerge[i]);
+    }
+
+    return 0;
 
     verify(vmerge, 2 * numels);
 
@@ -182,4 +233,5 @@ void verify(const int *vmerge, int numels)
             exit(2);
         }
     }
+    printf("test passed");
 }

@@ -1,21 +1,157 @@
-__device__ __forceinline__
-int search(
-    const int * __restrict__ vec,
-    const int search,
-    const int length
+extern __shared__ int shmem[];
+
+__global__
+void populateSample(
+    int * array,
+    int sample_length,
+    int array_length
 ) {
+    int i = getId();
+    if (i >= sample_length) return;
+
+    shmem[i] = array[i * (array_length / sample_length)];
+    // if (i < 10 || i > sample_length - 10) {
+    //     printf("\n%d * (%d / %d) = %d\t=>\t%d",
+    //         i,
+    //         array_length,
+    //         sample_length,
+    //         i * (array_length / sample_length),
+    //         shmem[i]
+    //     );
+    //     // printf("\nsample[%d] = %d", i, shmem[i]);
+    // }
+}
+
+__device__
+int binary_search_guess(
+    // const int * array,
+    int number_of_elements,
+    int key
+) {
+    // int lower = 0;
+    // int upper = length;
+    // int middle;
+    // while (lower < upper) {
+    //     middle = (lower + upper) >> 1;
+    //     if (vec[middle] < search) {
+    //         lower = middle + 1;
+    //     } else {
+    //         upper = middle;
+    //     }
+    // }
+    // return lower;
     int lower = 0;
-    int upper = length;
+    int upper = number_of_elements;
     int middle;
+
+    if (key == 0)
+        printf("%d %d %d", key, shmem[lower], shmem[upper]);
+
     while (lower < upper) {
         middle = (lower + upper) >> 1;
-        if (vec[middle] < search) {
+        // inizio dei chunk
+
+
+        // centro dei chunk
+        if (key < shmem[middle]) {
             lower = middle + 1;
         } else {
             upper = middle;
         }
+
+
+        // fine dei chunk
+
+
     }
     return lower;
+}
+
+__device__
+int binary_search_precise(
+    const int * array,
+    int key,
+    int low,
+    int high
+) {
+	int mid;
+	while(low <= high)
+	{
+		mid = (low + high)/2;
+		if(array[mid] < key)
+		{
+			low = mid + 1;
+		}
+		else if(array[mid] == key)
+		{
+			return mid;
+		}
+		else if(array[mid] > key)
+		{
+			high = mid-1;
+		}
+	}
+	return low;
+}
+
+__global__
+void search2(
+    const int * array,
+    // int * sample,
+    int * output,
+    const int * query,
+    int sample_length,
+    int array_length
+) {
+    int i = getId();
+    if (i >= array_length) return;
+
+    if (i != 131071) return;
+	// if(query[i] < *array || query[i] >= shmem[sample_length-1] + (array_length / sample_length)) {
+    //     output[i] = -1;
+    // }
+
+    // int guess = binary_search_guess(sample_length,query[i]);
+    int number_of_elements = sample_length;
+    int key = query[i];
+
+
+    int lower = 0;
+    int upper = number_of_elements -1;
+    int middle;
+
+    printf("\nCerco %d tra shmem[%d] (%d) e shmem[%d] (%d)", key, lower, shmem[lower], upper, shmem[upper]);
+
+    // if (key >= shmem[upper]) {
+    //     printf("VALORE TROVATO: %d", upper);
+    // }
+
+    while (upper - lower >= 2) {
+        middle = (lower + upper) >> 1;
+        // inizio dei chunk
+
+
+        // centro dei chunk
+        if (key < shmem[middle]) {
+            upper = middle;
+        } else {
+            lower = middle; // +1 solo al primo chunk
+        }
+    }
+
+    // return lower;
+
+
+
+    // printf("", lower);
+    printf("\n%d < %d < %d => %d < %d < %d", lower, middle, upper, shmem[lower], key, shmem[upper]);
+}
+
+
+__device__ int get_index_to_check(int thread, int num_threads, int set_size, int offset) {
+
+	// Integer division trick to round up
+	return (((set_size + num_threads) / num_threads) * thread) + offset;
 }
 
 __global__
@@ -36,7 +172,8 @@ void merge(
     const int * __restrict__ v1,
     const int * __restrict__ v2,
     int * __restrict__ vmerge,
-    int numels
+    int numels,
+    int * vidx
 ) {
     // Iterativo
     /*
@@ -53,14 +190,10 @@ void merge(
     int i = getId();
     if (i >= numels) return;
 
-    int el1 = v1[i];
-    // int el2 = v2[i];
+    int i2 = vidx[i];
 
-    int index_el1_in_v2 = search(v2, el1, numels); // 2*i;
-    // int index_el2_in_v1 = search(v1, el2, numels); // i1+1;
-
-    vmerge[i+index_el1_in_v2] = el1;
-    // vmerge[i+index_el2_in_v1] = el2;
+    int el = v1[i];
+    vmerge[i+i2] = el;
 
     // sincronizza e aggiungi i mancanti
     // __syncthreads();
