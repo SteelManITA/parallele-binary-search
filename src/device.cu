@@ -30,14 +30,12 @@ void getIdx(
     const int wi = getId();
     if (wi >= numels) return;
 
-    const int elements_per_wi = div_up(numels, blockDim.x);
-    const int start = wi*elements_per_wi;
-    const int end = min((wi+1)*elements_per_wi, numels);
+    const int global_size = blockDim.x*gridDim.x;
 
     // il primo valore lo trovo con la ricerca
-    vidx[start] = search(v2, v1[start], numels);
+    vidx[wi] = search(v2, v1[wi], numels);
 
-    for (int i = start+1; i < end; ++i) {
+    for (int i = wi + global_size; i < numels; i += global_size) {
         int prev = vidx[i-1];
         int val1 = v1[i];
         int val2 = v2[prev];
