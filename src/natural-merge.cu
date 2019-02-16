@@ -85,7 +85,8 @@ int main(int argc, char *argv[])
 
     cudaRunEvent(
         "merge",
-        [&](){ merge<<<numBlocks, blockSize>>>(d_v1, d_v2, d_vmerge, numels); },
+        // 1024 256
+        [&](){ merge<<<1024, 256>>>(d_v1, d_v2, d_vmerge, numels); },
         (2 * vSize) + (2 * vmergeSize) + (2 * vSize * (log(numels)/log(2))) // TODO: verificare
     );
 
@@ -107,10 +108,19 @@ int main(int argc, char *argv[])
 
 void verify(const int *vmerge, int numels)
 {
-    for (int i = 0; i < numels; ++i) {
+    int i;
+    for (i = 0; i < numels; ++i) {
         if (vmerge[i] != i) {
             fprintf(stderr, "mismatch @ %d: %d != %d\n", i, vmerge[i], i);
-            exit(2);
+            break;
         }
+    }
+    if (i != numels) {
+        for (int j = 0; j < numels; ++j) {
+            if (j > i-5 && j < i+5) {
+                printf("\n%d: %d", j, vmerge[j]);
+            }
+        }
+        exit(2);
     }
 }

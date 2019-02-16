@@ -74,8 +74,8 @@ void init(
 
 __global__
 void merge(
-    const int2 * __restrict__ v1,
-    const int2 * __restrict__ v2,
+    const int * __restrict__ v1,
+    const int * __restrict__ v2,
     int * __restrict__ vmerge,
     int numels
 ) {
@@ -91,18 +91,28 @@ void merge(
         if (vmerge[i] == -1) vmerge[i] = v2[i];
     }
     */
-    int i = getId();
-    if (i >= numels/2) return;
+    const int wi = getId();
+    if (wi >= numels) return;
 
-    int2 el1 = v1[i];
-    int2 index_el1_in_v2 = search_2key((int*)v2, 0, numels-1, el1.x, el1.y); // 2*i;
-    vmerge[(i*2) + (index_el1_in_v2.x + 1)] = el1.x;
-    vmerge[(i*2) + (index_el1_in_v2.y + 1)] = el1.y;
+    const int global_size = blockDim.x*gridDim.x;
 
-    int2 el2 = v2[i];
-    int2 index_el2_in_v1 = search_2key((int*)v1, 0, numels-1, el2.x, el2.y); // i1+1;
-    vmerge[(i*2) + (index_el2_in_v1.x + 1)] = el2.x;
-    vmerge[(i*2) + (index_el2_in_v1.y + 1)] = el2.y;
+    // se non riusciamo a prendere i due valori non entreremo mai perché la griglia dovrebbe essere lanciata diversamente
+    for (int i = wi; i < numels-global_size; i += 2*global_size) {
+        int curr = i;
+        int succ = i + global_size;
+
+        int el1 = v1[curr];
+        int el2 = v1[succ];
+        int2 index_el1_in_v2 = search_2key(v2, 0, numels-1, el1, el2);
+        vmerge[curr + index_el1_in_v2.x] = el1;
+        vmerge[succ + index_el1_in_v2.y] = el2;
+
+        int el1_2 = v2[curr];
+        int el2_2 = v2[succ];
+        int2 index_el2_in_v1 = search_2key(v1, 0, numels-1, el1_2, el2_2);
+        vmerge[curr + index_el2_in_v1.x] = el1_2;
+        vmerge[succ + index_el2_in_v1.y] = el2_2;
+    }
 
     // sincronizza e aggiungi i mancanti
     // __syncthreads();
