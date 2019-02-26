@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
     // uso d_v1 come appoggio (sporco l'input)
     cudaRunEvent(
         "compact v2",
-        [&](){ compact<<<numBlocks2, blockSize>>>(d_vmerge, d_vscan, d_v2, d_v1, 2*numels); },
+        [&](){ compact<<<numBlocks2, blockSize>>>(d_vmerge, d_vscan, d_v1, 2*numels); },
         0 // TODO: verificare
     );
 

@@ -100,7 +100,6 @@ __global__
 void compact(
     const int * __restrict__ merge,  // 0  -1   2  -1   4  -1   6  -1
     const int * __restrict__ indexs, // 0   0   1   1   2   2   3   3
-    const int * __restrict__ v2,     // 1   3   5   7
     int * __restrict__ output,
     int numels
 ) {
@@ -109,7 +108,7 @@ void compact(
 
     if (merge[i] == -1) {
         const int idx = indexs[i];
-        output[idx] = v2[idx];
+        output[idx] = i;
     }
 
 }
