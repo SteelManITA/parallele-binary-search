@@ -103,12 +103,6 @@ int main(int argc, char *argv[])
         (2 * vSize) + (2 * vmergeSize) + (2 * vSize * (log(numels)/log(2))) // TODO: verificare
     );
 
-    cudaRunEvent(
-        "filter index v2",
-        [&](){ filter<<<numBlocks2, blockSize>>>(d_vmerge, d_vscan, 2*numels); },
-        0 // TODO: verificare
-    );
-
     /* START SCAN */
     int blockSizeScan = 1024;
     int numBlocksScan = 8;
@@ -120,7 +114,7 @@ int main(int argc, char *argv[])
         "scan",
         [&](){
             scan<<<numBlocksScan, blockSizeScan, 4*blockSizeScan*sizeof(int)>>>(
-                (int4*)d_vscan, // unico input
+                (int4*)d_vmerge, // unico input
                 (int4*)d_vscan,
                 d_code, /* code */
                 numels*2);
@@ -145,14 +139,8 @@ int main(int argc, char *argv[])
 
     // uso d_v1 come appoggio (sporco l'input)
     cudaRunEvent(
-        "compact v2",
-        [&](){ compact<<<numBlocks2, blockSize>>>(d_vmerge, d_vscan, d_v1, 2*numels); },
-        0 // TODO: verificare
-    );
-
-    cudaRunEvent(
-        "finalize merge",
-        [&](){ finalize_merge<<<numBlocks, blockSize>>>(d_v2, d_v1, d_vmerge, numels); },
+        "finalize_merge v2",
+        [&](){ finalize_merge<<<numBlocks2, blockSize>>>(d_vmerge, d_vscan, d_v2, 2*numels); },
         0 // TODO: verificare
     );
 

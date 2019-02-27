@@ -74,33 +74,11 @@ void merge(
     // }
 }
 
-// prende tutti quelli con -1 e setta v2
 __global__
-void filter(
-    const int * __restrict__ input, // vmerge
-    int * __restrict__ output,
-    int numels
-) {
-    int i = getId();
-    if (i >= numels) return;
-
-    if (input[i] == -1) {
-        output[i] = 1;
-    } else {
-        output[i] = 0;
-    }
-
-    // __syncthreads();
-
-    // TODO: scan
-
-}
-
-__global__
-void compact(
-    const int * __restrict__ merge,  // 0  -1   2  -1   4  -1   6  -1
+void finalize_merge(
+    int * __restrict__ merge,  // 0  -1   2  -1   4  -1   6  -1
     const int * __restrict__ indexs, // 0   0   1   1   2   2   3   3
-    int * __restrict__ output,
+    const int * __restrict__ v2,
     int numels
 ) {
     int i = getId();
@@ -108,25 +86,10 @@ void compact(
 
     if (merge[i] == -1) {
         const int idx = indexs[i-1]; // -1 perché sto facendo scan inclusivo
-        output[idx] = i;
+        merge[i] = v2[idx];
     }
 
 }
-
-__global__
-void finalize_merge(
-    const int * __restrict__ v2,
-    const int * __restrict__ compactedIndexs,
-    int * __restrict__ merge,
-    int numels
-) {
-    int i = getId();
-    if (i >= numels) return;
-
-    int idx = compactedIndexs[i];
-    merge[idx] = v2[i];
-}
-
 
 extern __shared__ int shmem[];
 
@@ -164,6 +127,12 @@ void scan(const int4 * __restrict__ v1,
 		int4 d2 = idx2 < scan_end ? v1[idx2] : nodata;
 		int4 d3 = idx3 < scan_end ? v1[idx3] : nodata;
 #define SCAN_V4(d) do { \
+        if (code) { \
+            d.x = d.x == -1 ? 1 : 0; \
+            d.y = d.y == -1 ? 1 : 0; \
+            d.z = d.z == -1 ? 1 : 0; \
+            d.w = d.w == -1 ? 1 : 0; \
+        } \
 		d.y += d.x; \
 		d.w += d.z; \
 		d.z += d.y; \
