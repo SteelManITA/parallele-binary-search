@@ -119,13 +119,13 @@ int main(int argc, char *argv[])
     cudaRunEvent(
         "scan",
         [&](){
-            scan<<<numBlocksScan, blockSizeScan, blockSizeScan*sizeof(int)>>>(
+            scan<<<numBlocksScan, blockSizeScan, 4*blockSizeScan*sizeof(int)>>>(
                 (int4*)d_vscan, // unico input
                 (int4*)d_vscan,
                 d_code, /* code */
                 numels*2);
             if (numBlocksScan > 1) {
-                scan<<<1, blockSizeScan, blockSizeScan*sizeof(int)>>>(
+                scan<<<1, blockSizeScan, 4*blockSizeScan*sizeof(int)>>>(
                     (int4*)d_code,
                     (int4*)d_code,
                     NULL,

@@ -107,7 +107,7 @@ void compact(
     if (i >= numels) return;
 
     if (merge[i] == -1) {
-        const int idx = indexs[i];
+        const int idx = indexs[i-1]; // -1 perché sto facendo scan inclusivo
         output[idx] = i;
     }
 
@@ -130,14 +130,22 @@ void finalize_merge(
 
 extern __shared__ int shmem[];
 
+__device__ __forceinline__
+int4& operator+=(int4& v, int c)
+{
+	v.x += c; v.y += c;
+	v.z += c; v.w += c;
+	return v;
+}
+
 __global__
 void scan(const int4 * __restrict__ v1,
 	int4 * __restrict__ vscan,
 	int * __restrict__ code,
 	int numels /*numero di elementi, multiplo di 4 */)
 {
-	const int window_size = blockDim.x;
-    const int wi = threadIdx.x;
+    const int window_size = blockDim.x;
+	const int wi = threadIdx.x;
 	const int numquarts = numels/4;
 	const int quarts_per_block = div_up(numquarts, gridDim.x);
 	/* prima quartina del blocco */
@@ -145,58 +153,74 @@ void scan(const int4 * __restrict__ v1,
 	const int scan_end = min(first_quart + quarts_per_block, numquarts);
 	/* coda della sliding window */
 	int sliding_tail = 0;
-	for (int i = first_quart + wi; i < scan_end; i += window_size) {
-        int4 datum = v1[i];
+	const int4 nodata = make_int4(0, 0, 0, 0);
+	for (int i = first_quart + wi; i < scan_end; i += 4*window_size) {
+		int idx0 = i;
+		int idx1 = i + window_size;
+		int idx2 = i + 2*window_size;
+		int idx3 = i + 3*window_size;
+		int4 d0 = idx0 < scan_end ? v1[idx0] : nodata;
+		int4 d1 = idx1 < scan_end ? v1[idx1] : nodata;
+		int4 d2 = idx2 < scan_end ? v1[idx2] : nodata;
+		int4 d3 = idx3 < scan_end ? v1[idx3] : nodata;
+#define SCAN_V4(d) do { \
+		d.y += d.x; \
+		d.w += d.z; \
+		d.z += d.y; \
+		d.w += d.y; \
+} while (0)
 
-        if (gridDim.x > 1) {
-            shmem[threadIdx.x] = datum.w + datum.z + datum.y + datum.x;
+		SCAN_V4(d0);
+		SCAN_V4(d1);
+		SCAN_V4(d2);
+		SCAN_V4(d3);
 
-            // 0 1 2 3
-            datum.w = datum.z + datum.y + datum.x;
-            // 0 1 2 3
-            datum.z = datum.y + datum.x;
-            // 0 1 1 3
-            datum.y = datum.x;
-            // 0 0 1 3
-            datum.x = 0;
-            // 0 0 1 3
-        } else {
-            // 1 2 3 4
-            datum.y += datum.x;
-            // 1 3 3 4
-            datum.w += datum.z;
-            // 1 3 3 7
-            datum.z += datum.y;
-            // 1 3 6 7
-            datum.w += datum.y;
-            // 1 3 6 10
-
-            shmem[threadIdx.x] = datum.w;
-        }
-
+		shmem[threadIdx.x] = d0.w;
+		shmem[threadIdx.x + blockDim.x] = d1.w;
+		shmem[threadIdx.x + 2*blockDim.x] = d2.w;
+		shmem[threadIdx.x + 3*blockDim.x] = d3.w;
 		__syncthreads();
 
 		/* scansione delle code */
+		int idx_r = threadIdx.x*2;
+#pragma unroll 8
 		for (int n = 1; n < blockDim.x ; n*=2) {
-			if (threadIdx.x < blockDim.x/2) {
-				int idx_r = (threadIdx.x/n)*(2*n) + (n-1);
-				int idx_w = idx_r + 1 + (threadIdx.x & (n-1));
-				shmem[idx_w] += shmem[idx_r];
-			}
+			int idx_w = idx_r + 1 + (threadIdx.x & (n-1));
+			shmem[idx_w] += shmem[idx_r];
+			shmem[idx_w + 2*blockDim.x] += shmem[idx_r + 2*blockDim.x];
+			int multiplo = !!(threadIdx.x & n);
+			idx_r += n*(1 - multiplo) - n*multiplo;
 			__syncthreads();
 		}
 
 		/* correzione */
-		int corr = sliding_tail;
-		if (threadIdx.x > 0)
-			corr += shmem[threadIdx.x-1];
-		sliding_tail += shmem[blockDim.x-1];
+		int shtail1 = shmem[blockDim.x - 1];
+		int shtail2 = shmem[2*blockDim.x - 1];
+		int shtail3 = shmem[3*blockDim.x - 1];
+		int shtail4 = shmem[4*blockDim.x - 1];
+		int corr0 = sliding_tail;
+		int corr1 = sliding_tail + shtail1;
+		int corr2 = sliding_tail + shtail1 + shtail2;
+		int corr3 = (sliding_tail + shtail1) + (shtail2 + shtail3);
+		if (threadIdx.x > 0) {
+			corr0 += shmem[threadIdx.x                - 1];
+			corr1 += shmem[threadIdx.x +   blockDim.x - 1];
+			corr2 += shmem[threadIdx.x + 2*blockDim.x - 1];
+			corr3 += shmem[threadIdx.x + 3*blockDim.x - 1];
+		}
+		sliding_tail += shtail1 + shtail2;
+		sliding_tail += shtail3 + shtail4;
 		__syncthreads();
-		datum.x += corr;
-		datum.y += corr;
-		datum.z += corr;
-		datum.w += corr;
-		vscan[i] = datum;
+
+		d0 += corr0;
+		d1 += corr1;
+		d2 += corr2;
+		d3 += corr3;
+
+		if (idx0 < scan_end) vscan[idx0] = d0;
+		if (idx1 < scan_end) vscan[idx1] = d1;
+		if (idx2 < scan_end) vscan[idx2] = d2;
+		if (idx3 < scan_end) vscan[idx3] = d3;
 	}
 	if (gridDim.x > 1 && threadIdx.x == 0)
 		code[blockIdx.x] = sliding_tail;
